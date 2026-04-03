@@ -4,8 +4,9 @@ from openai import OpenAI
 from collections import defaultdict
 import time
 
-DISCORD_TOKEN = os.getenv("MTQ4OTYxNTM4OTc0MTU1MTgxNg.Gk6ZZs.AGGMd6b56KSLAWlf3MhVgMwhlruHmxUP-CDJpA")
-OPENAI_API_KEY = os.getenv("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")
+DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
