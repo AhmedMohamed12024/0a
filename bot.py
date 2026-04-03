@@ -126,42 +126,53 @@ async def on_message(message):
         return
 
     # 🖼️ Image generation
-    if content.lower().startswith("image"):
-        prompt = content.replace("image", "", 1).strip()
+if content.lower().startswith("image"):
+    prompt = content.replace("image", "", 1).strip()
 
-        if not prompt:
-            await message.reply("Give me a prompt!")
-            return
-
-        if not GROQ_API_KEY:
-            await message.reply("⚠️ Image generation is not configured. Set `GROQ_API_KEY`.")
-            return
-
-        await message.reply("🎨 Generating your image, please wait...")
-
-        try:
-            # Generate image using Groq
-            result = client.images.generate(
-                model="stabilityai/stable-diffusion-2",
-                prompt=prompt,
-                width=512,
-                height=512,
-            )
-
-            # Extract base64 image from result
-            image_base64 = result.images[0]
-            image_bytes = io.BytesIO(base64.b64decode(image_base64))
-
-            await message.channel.send(
-                f"🖼️ Here's your image for: **{prompt}**",
-                file=discord.File(fp=image_bytes, filename="generated.png")
-            )
-
-        except Exception as e:
-            print("Image generation error:", e)
-            await message.reply("⚠️ Image generation failed. Make sure your API key is valid and the model is accessible.")
+    if not prompt:
+        await message.reply("Give me a prompt!")
         return
 
+    if not GROQ_API_KEY:
+        await message.reply("⚠️ Image generation is not configured. Set `GROQ_API_KEY`.")
+        return
+
+    await message.reply("🎨 Generating your image, please wait...")
+
+    try:
+        # Generate image using Groq
+        result = client.images.generate(
+            model="stabilityai/stable-diffusion-2",
+            prompt=prompt,
+            width=512,
+            height=512,
+        )
+
+        # Robustly extract base64 image from Groq result
+        image_base64 = None
+        if hasattr(result, "images") and len(result.images) > 0:
+            image_base64 = result.images[0]
+        elif hasattr(result, "data") and len(result.data) > 0:
+            # Some SDK versions store base64 under data[0].b64_json
+            image_base64 = result.data[0].b64_json
+        else:
+            await message.reply("⚠️ Could not find image in API response.")
+            return
+
+        # Decode base64 and send to Discord
+        image_bytes = io.BytesIO(base64.b64decode(image_base64))
+        await message.channel.send(
+            f"🖼️ Here's your image for: **{prompt}**",
+            file=discord.File(fp=image_bytes, filename="generated.png")
+        )
+
+    except Exception as e:
+        print("Image generation error:", e)
+        await message.reply(
+            "⚠️ Image generation failed. Make sure your GROQ_API_KEY is correct, "
+            "and the model is available."
+        )
+        
     # 📁 Read attachments (text files only)
     if message.attachments:
         file = message.attachments[0]
