@@ -142,7 +142,7 @@ async def on_message(message):
 
         try:
             response = requests.post(
-                "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-2",
+                "https://router.huggingface.co/models/stabilityai/stable-diffusion-2",
                 headers={"Authorization": f"Bearer {HF_API_KEY}"},
                 json={"inputs": prompt},
                 timeout=60
