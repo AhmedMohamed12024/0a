@@ -1,11 +1,13 @@
 import discord
 import os
+import requests
 from groq import Groq
 from collections import defaultdict
 import time
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+HF_API_KEY = os.getenv("HF_API_KEY")
 
 
 client = Groq(api_key=GROQ_API_KEY)
@@ -132,7 +134,34 @@ async def on_message(message):
             await message.reply("Give me a prompt!")
             return
 
-        await message.reply("🚫 Image generation is not available with Groq.")
+        if not HF_API_KEY:
+            await message.reply("⚠️ Image generation is not configured. Please set the `HF_API_KEY` environment variable.")
+            return
+
+        await message.reply("🎨 Generating your image, please wait...")
+
+        try:
+            response = requests.post(
+                "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-2",
+                headers={"Authorization": f"Bearer {HF_API_KEY}"},
+                json={"inputs": prompt},
+                timeout=60
+            )
+
+            if response.status_code == 200:
+                await message.channel.send(
+                    f"🖼️ Here's your image for: **{prompt}**",
+                    file=discord.File(fp=__import__("io").BytesIO(response.content), filename="generated.png")
+                )
+            else:
+                error = response.json() if response.content else {}
+                error_msg = error.get("error", f"HTTP {response.status_code}")
+                await message.reply(f"⚠️ Image generation failed: {error_msg}")
+        except requests.exceptions.Timeout:
+            await message.reply("⏱️ Image generation timed out. The model may be loading — try again in a moment.")
+        except Exception as e:
+            print(e)
+            await message.reply("⚠️ Image generation error.")
         return
 
     # 📁 Read attachments (text only)
