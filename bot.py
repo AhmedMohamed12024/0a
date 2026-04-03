@@ -1,24 +1,24 @@
 import discord
 import os
-import requests
-from groq import Groq
-from collections import defaultdict
+import io
 import time
+import base64
+from collections import defaultdict
+from groq import Groq
 
+# Environment variables
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-HF_API_KEY = os.getenv("HF_API_KEY")
 
-
+# Initialize Groq client
 client = Groq(api_key=GROQ_API_KEY)
 
-
+# Discord intents
 intents = discord.Intents.default()
 intents.message_content = True
-
 bot = discord.Client(intents=intents)
 
-# 🧠 Memory
+# 🧠 Memory per user
 user_memory = defaultdict(list)
 
 # 🎭 Personalities
@@ -30,7 +30,6 @@ personalities = {
     "villain": "You are a dramatic evil villain.",
     "genius": "You are extremely intelligent and detailed."
 }
-
 user_personality = defaultdict(lambda: "default")
 
 # 📌 Channel restrictions (guild_id -> user_id -> channel_id)
@@ -38,15 +37,18 @@ allowed_channels = defaultdict(lambda: defaultdict(lambda: None))
 
 # 🛡️ Cooldown
 cooldowns = {}
-COOLDOWN_TIME = 5
+COOLDOWN_TIME = 5  # seconds
 
+# ✅ Bot ready
 @bot.event
 async def on_ready():
     print(f"✅ Logged in as {bot.user}")
 
+# Check if bot is mentioned
 def is_mentioned(message):
     return bot.user in message.mentions
 
+# Check if message is a reply to bot
 def is_reply_to_bot(message):
     return (
         message.reference
@@ -54,14 +56,13 @@ def is_reply_to_bot(message):
         and message.reference.resolved.author == bot.user
     )
 
+# Embed reply
 async def generate_embed_reply(message, content):
-    embed = discord.Embed(
-        description=content,
-        color=discord.Color.blue()
-    )
+    embed = discord.Embed(description=content, color=discord.Color.blue())
     embed.set_footer(text="AI Bot ✨")
     await message.reply(embed=embed)
 
+# Main message handler
 @bot.event
 async def on_message(message):
     if message.author.bot:
@@ -80,17 +81,18 @@ async def on_message(message):
             await message.reply("❌ This bot is restricted to another channel")
             return
 
-    # 🛡️ Cooldown
+    # 🛡️ Cooldown check
     now = time.time()
     if user_id in cooldowns and now - cooldowns[user_id] < COOLDOWN_TIME:
         await message.reply("⏳ Slow down!")
         return
     cooldowns[user_id] = now
 
+    # Remove bot mention from content
     content = message.content.replace(f"<@{bot.user.id}>", "").strip()
 
-    # 📌 Set channel restriction
-    if content == "setchannel":
+    # 📌 Commands
+    if content.lower() == "setchannel":
         if guild_id is None:
             await message.reply("❌ This command can only be used in a server.")
             return
@@ -98,8 +100,7 @@ async def on_message(message):
         await message.reply("✅ Bot will now only respond in this channel")
         return
 
-    # 📌 Clear channel restriction
-    if content == "clearchannel":
+    if content.lower() == "clearchannel":
         if guild_id is None:
             await message.reply("❌ This command can only be used in a server.")
             return
@@ -107,115 +108,61 @@ async def on_message(message):
         await message.reply("✅ Channel restriction removed. Bot will respond in any channel.")
         return
 
-    # 🎭 Set personality
-    if content.startswith("setpersonality"):
+    if content.lower().startswith("setpersonality"):
         try:
             _, p = content.split(" ", 1)
             if p in personalities:
                 user_personality[user_id] = p
                 await message.reply(f"✅ Personality set to **{p}**")
             else:
-                await message.reply(f"Available: {', '.join(personalities.keys())}")
+                await message.reply(f"Available personalities: {', '.join(personalities.keys())}")
         except:
             await message.reply("Usage: setpersonality funny")
         return
 
-    # 🧠 Reset memory
-    if content == "reset":
+    if content.lower() == "reset":
         user_memory[user_id] = []
         await message.reply("🧠 Memory cleared!")
         return
 
-import base64
-import io
+    # 🖼️ Image generation
+    if content.lower().startswith("image"):
+        prompt = content.replace("image", "", 1).strip()
 
-# 🖼️ Image generation
-if content.startswith("image"):
-    prompt = content.replace("image", "").strip()
+        if not prompt:
+            await message.reply("Give me a prompt!")
+            return
 
-    if not prompt:
-        await message.reply("Give me a prompt!")
-        return
-
-    if not GROQ_API_KEY:
-        await message.reply("⚠️ Image generation is not configured. Please set the `GROQ_API_KEY` environment variable.")
-        return
-
-    await message.reply("🎨 Generating your image, please wait...")
-
-    try:
-        # Generate image using Groq
-        result = client.images.generate(
-            model="stabilityai/stable-diffusion-2",
-            prompt=prompt,
-            width=512,
-            height=512,
-        )
-
-        # Correct way to get base64 from result
-        image_base64 = result.images[0]  # list of base64 images
-        image_bytes = io.BytesIO(base64.b64decode(image_base64))
-
-        await message.channel.send(
-            f"🖼️ Here's your image for: **{prompt}**",
-            file=discord.File(fp=image_bytes, filename="generated.png")
-        )
-
-    except Exception as e:
-        print("Image generation error:", e)
-        await message.reply("⚠️ Image generation failed. Make sure your API key is valid and the model is accessible.")
-
-    await message.reply("🎨 Generating your image, please wait...")
-
-    try:
-        # Generate image using Groq
-        result = client.images.generate(
-            model="stabilityai/stable-diffusion-2",
-            prompt=prompt,
-            width=512,
-            height=512,
-        )
-
-        # The Groq API returns a base64-encoded image
-        image_base64 = result.data[0].b64_json  # decode the first image
-        image_bytes = io.BytesIO(base64.b64decode(image_base64))
-
-        await message.channel.send(
-            f"🖼️ Here's your image for: **{prompt}**",
-            file=discord.File(fp=image_bytes, filename="generated.png")
-        )
-
-    except Exception as e:
-        print(e)
-        await message.reply("⚠️ Image generation failed. Make sure your API key is valid and the model is accessible.")
+        if not GROQ_API_KEY:
+            await message.reply("⚠️ Image generation is not configured. Set `GROQ_API_KEY`.")
+            return
 
         await message.reply("🎨 Generating your image, please wait...")
 
         try:
-            response = requests.post(
-                "https://router.huggingface.co/models/stabilityai/stable-diffusion-2",
-                headers={"Authorization": f"Bearer {HF_API_KEY}"},
-                json={"inputs": prompt},
-                timeout=60
+            # Generate image using Groq
+            result = client.images.generate(
+                model="stabilityai/stable-diffusion-2",
+                prompt=prompt,
+                width=512,
+                height=512,
             )
 
-            if response.status_code == 200:
-                await message.channel.send(
-                    f"🖼️ Here's your image for: **{prompt}**",
-                    file=discord.File(fp=__import__("io").BytesIO(response.content), filename="generated.png")
-                )
-            else:
-                error = response.json() if response.content else {}
-                error_msg = error.get("error", f"HTTP {response.status_code}")
-                await message.reply(f"⚠️ Image generation failed: {error_msg}")
-        except requests.exceptions.Timeout:
-            await message.reply("⏱️ Image generation timed out. The model may be loading — try again in a moment.")
+            # Extract base64 image from result
+            image_base64 = result.images[0]
+            image_bytes = io.BytesIO(base64.b64decode(image_base64))
+
+            await message.channel.send(
+                f"🖼️ Here's your image for: **{prompt}**",
+                file=discord.File(fp=image_bytes, filename="generated.png")
+            )
+
         except Exception as e:
-            print(e)
-            await message.reply("⚠️ Image generation error.")
+            print("Image generation error:", e)
+            await message.reply("⚠️ Image generation failed. Make sure your API key is valid and the model is accessible.")
         return
 
-    # 📁 Read attachments (text only)
+    # 📁 Read attachments (text files only)
     if message.attachments:
         file = message.attachments[0]
         if file.filename.endswith((".txt", ".py", ".json")):
@@ -226,27 +173,26 @@ if content.startswith("image"):
     user_memory[user_id].append({"role": "user", "content": content})
     user_memory[user_id] = user_memory[user_id][-12:]
 
+    # Generate AI reply
     try:
         response = client.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=[
                 {
                     "role": "system",
-                    "content": personalities[user_personality[user_id]] +
-                               " Detect and reply in the user's language."
+                    "content": personalities[user_personality[user_id]] + " Detect and reply in the user's language."
                 },
                 *user_memory[user_id]
             ]
         )
 
         reply = response.choices[0].message.content
-
         user_memory[user_id].append({"role": "assistant", "content": reply})
-
         await generate_embed_reply(message, reply)
 
     except Exception as e:
-        print(e)
+        print("Chat error:", e)
         await message.reply("⚠️ AI error.")
 
+# Run bot
 bot.run(DISCORD_TOKEN)
