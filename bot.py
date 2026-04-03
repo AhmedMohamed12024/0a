@@ -31,6 +31,9 @@ personalities = {
 
 user_personality = defaultdict(lambda: "default")
 
+# 📌 Channel restrictions (guild_id -> user_id -> channel_id)
+allowed_channels = defaultdict(lambda: defaultdict(lambda: None))
+
 # 🛡️ Cooldown
 cooldowns = {}
 COOLDOWN_TIME = 5
@@ -66,6 +69,14 @@ async def on_message(message):
         return
 
     user_id = message.author.id
+    guild_id = message.guild.id if message.guild else None
+
+    # 📌 Channel restriction check
+    if guild_id is not None:
+        restricted_channel = allowed_channels[guild_id][user_id]
+        if restricted_channel is not None and message.channel.id != restricted_channel:
+            await message.reply("❌ This bot is restricted to another channel")
+            return
 
     # 🛡️ Cooldown
     now = time.time()
@@ -75,6 +86,24 @@ async def on_message(message):
     cooldowns[user_id] = now
 
     content = message.content.replace(f"<@{bot.user.id}>", "").strip()
+
+    # 📌 Set channel restriction
+    if content == "setchannel":
+        if guild_id is None:
+            await message.reply("❌ This command can only be used in a server.")
+            return
+        allowed_channels[guild_id][user_id] = message.channel.id
+        await message.reply("✅ Bot will now only respond in this channel")
+        return
+
+    # 📌 Clear channel restriction
+    if content == "clearchannel":
+        if guild_id is None:
+            await message.reply("❌ This command can only be used in a server.")
+            return
+        allowed_channels[guild_id][user_id] = None
+        await message.reply("✅ Channel restriction removed. Bot will respond in any channel.")
+        return
 
     # 🎭 Set personality
     if content.startswith("setpersonality"):
@@ -105,7 +134,6 @@ async def on_message(message):
 
         await message.reply("🚫 Image generation is not available with Groq.")
         return
-
 
     # 📁 Read attachments (text only)
     if message.attachments:
