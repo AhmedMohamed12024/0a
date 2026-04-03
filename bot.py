@@ -126,17 +126,41 @@ async def on_message(message):
         await message.reply("🧠 Memory cleared!")
         return
 
-    # 🖼️ Image generation
-    if content.startswith("image"):
-        prompt = content.replace("image", "").strip()
+# 🖼️ Image generation
+if content.startswith("image"):
+    prompt = content.replace("image", "").strip()
 
-        if not prompt:
-            await message.reply("Give me a prompt!")
-            return
+    if not prompt:
+        await message.reply("Give me a prompt!")
+        return
 
-        if not HF_API_KEY:
-            await message.reply("⚠️ Image generation is not configured. Please set the `HF_API_KEY` environment variable.")
-            return
+    if not GROQ_API_KEY:
+        await message.reply("⚠️ Image generation is not configured. Please set the `GROQ_API_KEY` environment variable.")
+        return
+
+    await message.reply("🎨 Generating your image, please wait...")
+
+    try:
+        # Generate image using Groq
+        result = client.images.generate(
+            model="stabilityai/stable-diffusion-2",
+            prompt=prompt,
+            width=512,
+            height=512,
+        )
+
+        # The Groq API returns a base64-encoded image
+        image_base64 = result.data[0].b64_json  # decode the first image
+        image_bytes = io.BytesIO(base64.b64decode(image_base64))
+
+        await message.channel.send(
+            f"🖼️ Here's your image for: **{prompt}**",
+            file=discord.File(fp=image_bytes, filename="generated.png")
+        )
+
+    except Exception as e:
+        print(e)
+        await message.reply("⚠️ Image generation failed. Make sure your API key is valid and the model is accessible.")
 
         await message.reply("🎨 Generating your image, please wait...")
 
