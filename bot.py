@@ -1,14 +1,15 @@
 import discord
 import os
-from openai import OpenAI
+from groq import Groq
 from collections import defaultdict
 import time
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 
-client = OpenAI(api_key=OPENAI_API_KEY)
+client = Groq(api_key=GROQ_API_KEY)
+
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -102,19 +103,9 @@ async def on_message(message):
             await message.reply("Give me a prompt!")
             return
 
-        try:
-            img = client.images.generate(
-                model="gpt-image-1",
-                prompt=prompt,
-                size="1024x1024"
-            )
-
-            await message.reply(img.data[0].url)
-
-        except Exception as e:
-            print(e)
-            await message.reply("⚠️ Image error.")
+        await message.reply("🚫 Image generation is not available with Groq.")
         return
+
 
     # 📁 Read attachments (text only)
     if message.attachments:
@@ -129,7 +120,7 @@ async def on_message(message):
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4.1-mini",
+            model="mixtral-8x7b-32768",
             messages=[
                 {
                     "role": "system",
