@@ -3,25 +3,21 @@ import os
 import io
 import time
 import requests
-import base64
 from collections import defaultdict
 from groq import Groq
 
-# Environment variables
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
+REPLICATE_API_KEY = os.getenv("REPLICATE_API_KEY")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-# Initialize Groq client
+# Groq client for chat
 client = Groq(api_key=GROQ_API_KEY)
 
 intents = discord.Intents.default()
 intents.message_content = True
 bot = discord.Client(intents=intents)
 
-# 🧠 Memory
 user_memory = defaultdict(list)
-
-# 🎭 Personalities
 personalities = {
     "default": "You are a helpful and friendly assistant.",
     "funny": "You are sarcastic, witty, and funny.",
@@ -31,11 +27,7 @@ personalities = {
     "genius": "You are extremely intelligent and detailed."
 }
 user_personality = defaultdict(lambda: "default")
-
-# 📌 Channel restrictions
 allowed_channels = defaultdict(lambda: defaultdict(lambda: None))
-
-# 🛡️ Cooldown
 cooldowns = {}
 COOLDOWN_TIME = 5
 
@@ -58,7 +50,6 @@ async def generate_embed_reply(message, content):
     embed.set_footer(text="AI Bot ✨")
     await message.reply(embed=embed)
 
-# --- Main message handler ---
 @bot.event
 async def on_message(message):
     if message.author.bot:
@@ -70,21 +61,18 @@ async def on_message(message):
     user_id = message.author.id
     guild_id = message.guild.id if message.guild else None
 
-    # Channel restriction
     if guild_id is not None:
         restricted_channel = allowed_channels[guild_id][user_id]
         if restricted_channel is not None and message.channel.id != restricted_channel:
             await message.reply("❌ This bot is restricted to another channel")
             return
 
-    # Cooldown
     now = time.time()
     if user_id in cooldowns and now - cooldowns[user_id] < COOLDOWN_TIME:
         await message.reply("⏳ Slow down!")
         return
     cooldowns[user_id] = now
 
-    # Remove bot mention
     content = message.content.replace(f"<@{bot.user.id}>", "").strip()
 
     # --- Commands ---
@@ -121,46 +109,45 @@ async def on_message(message):
         await message.reply("🧠 Memory cleared!")
         return
 
-    # --- Image generation using Stable Horde free API ---
+    # --- Image generation via Replicate ---
     if content.lower().startswith("image"):
         prompt = content.replace("image", "", 1).strip()
         if not prompt:
             await message.reply("Give me a prompt!")
             return
 
+        if not REPLICATE_API_KEY:
+            await message.reply("⚠️ Image generation not configured. Set REPLICATE_API_KEY.")
+            return
+
         await message.reply("🎨 Generating your image, please wait...")
 
         try:
+            headers = {"Authorization": f"Token {REPLICATE_API_KEY}"}
             payload = {
-                "prompt": prompt,
-                "params": {"width": 512, "height": 512, "steps": 30}
+                "version": "db21e45a6e4a1ff5e6fa9b5f6b3b9b7c7a20c4c4b8e9f7e3e6f1d2c3a4b5c6d7",  # Stable Diffusion v2
+                "input": {"prompt": prompt, "width": 512, "height": 512}
             }
-            # Free Stable Horde public endpoint
-            response = requests.post("https://stablehorde.net/api/v2/generate/async", json=payload, timeout=60)
-            response.raise_for_status()
-            job_id = response.json()["id"]
+            r = requests.post("https://api.replicate.com/v1/predictions", headers=headers, json=payload)
+            r.raise_for_status()
+            result = r.json()
+            prediction_url = result["urls"]["get"]
 
-            # Polling for completion
+            # Poll until done
             while True:
-                r = requests.get(f"https://stablehorde.net/api/v2/generate/status/{job_id}", timeout=60)
-                r.raise_for_status()
-                status_data = r.json()
-                if status_data["done"]:
-                    # Get the first generated image (base64)
-                    img_b64 = status_data["generations"][0]["img"]
-                    img_bytes = io.BytesIO(base64.b64decode(img_b64))
-                    await message.channel.send(
-                        f"🖼️ Here's your image for: **{prompt}**",
-                        file=discord.File(fp=img_bytes, filename="generated.png")
-                    )
+                r2 = requests.get(prediction_url, headers=headers)
+                r2.raise_for_status()
+                status = r2.json()["status"]
+                if status == "succeeded":
+                    image_url = r2.json()["output"][0]
+                    await message.channel.send(f"🖼️ {image_url} (prompt: **{prompt}**)")
                     break
-                elif status_data.get("failed"):
-                    await message.reply("⚠️ Image generation failed on Stable Horde API.")
+                elif status == "failed":
+                    await message.reply("⚠️ Image generation failed.")
                     break
-
         except Exception as e:
             print("Image generation error:", e)
-            await message.reply("⚠️ Image generation failed. Try again later.")
+            await message.reply("⚠️ Image generation failed. Check your API key or network.")
         return
 
     # --- Attachments ---
@@ -174,7 +161,7 @@ async def on_message(message):
     user_memory[user_id].append({"role": "user", "content": content})
     user_memory[user_id] = user_memory[user_id][-12:]
 
-    # --- Chat reply using Groq ---
+    # --- Chat via Groq ---
     try:
         response = client.chat.completions.create(
             model="llama-3.1-8b-instant",
